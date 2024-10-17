@@ -1,0 +1,369 @@
+! README
+
+! 1. /INPUT has to be used for all commands to work (adapt to INPUT_main.txt location)
+! 2. Change root folder
+! 3. extract all Config Files (M1_2.txt etc.) and INPUT_main.txt to root folder
+! 4. Uncommand used configuration
+
+
+!/INPUT,'C:\Users\tadde\BA_ANSYS\INPUT_main',txt
+
+/clear
+
+! ####################################INPUT############################################
+root = 'C:\Users\tadde\BA_ANSYS'	! Root folder
+
+graph_flag = 1 				! Set to 1 for path graphing and position output
+
+
+!/INPUT,'%root%\M1_2',txt		! Used configuration
+!/INPUT,'%root%\M2',txt
+!/INPUT,'%root%\M3',txt
+!/INPUT,'%root%\M4_2',txt
+!/INPUT,'%root%\M5_2',txt
+
+! #####################################################################################
+
+/MKDIR, '%root%\%mechname%'
+
+
+/units,user, FORCEFACT,10e+6 	!Pa -> MPa
+
+!P R E D E F I N I T I O N
+	/prep7 !Entering predefinition
+	k1x   = x1				
+	k1y   = y1				
+	k2x   = x2				
+	k2y   = y2				
+	k3x   = x3				
+	k3y   = y3				
+	k4x   = x4				
+	k4y   = y4				
+	rot_z = rot_z			  	  
+
+!Teilungen der Linien --> WARUM TEILUNG DER RIGIDEN ELEMENTE?
+	num_div = 10 
+
+
+!Defining the keypoints (K, NPT (reference number), X,Y,Z)
+	k,1,k1x,k1y,0
+	k,2,k2x,k2y,0
+	k,3,k2x,k2y,0
+	k,4,k3x,k3y,0
+	k,5,k3x,k3y,0
+	k,6,k4x,k4y,0
+
+
+!Defining Lines between keypoint NPTs
+	L,1,2
+	L,3,4
+	L,5,6
+
+
+!Specifies the divisions and spacing ratio on unmeshed lines. (LESIZE, Line Number, blank->size is element length, ANGSIZ straight -> single division, NDIV number of element divisions per line)
+
+	lesize,1,,,100
+	lesize,2,,,num_div
+	lesize,3,,,num_div
+
+!Defines a local ELEMENT TYPE from the element library. (ET, Element number, Element name (BEAM188))
+	et,1,BEAM188
+	et,2,MPC184,1,1	!rigid Beam Element using Lagrange multiplier method to impose kinematic contraints
+	
+
+!Generates nodes and line elements along lines.
+	lmesh,all
+ 
+
+!Predefine Material properties as variables
+	mp,dens,1,12.7		!kg/qm
+	mp,ex,1,2200		!MPa
+	mp,prxy,1,0.4
+
+
+!--- Compliant Section ---
+
+!Associates section type information with a section ID number (SECTYPE, SECID, Type, Subtype, Name, REFINEKEY - Level of thin wall mesh refinement 0-5)
+	SECTYPE, 1, BEAM, RECT, comp, 5
+
+!Defines the section offset for cross sections. CENT -> to Centerpoint
+	SECOFFSET, CENT
+
+!Describes the geometry of a section (for RECT: SECDATA, B, H, Nb, Nh)
+	SECDATA, 0.0008,0.01,10,10
+
+
+!--- RIGID Section ---
+!	SECTYPE, 2, BEAM, RECT, rigid, 0
+!	SECOFFSET, CENT
+
+!Describes the geometry of a section (for RECT: SECDATA, B, H, Nb, Nh)
+!	SECDATA, 6,10,10,10
+
+
+
+!S E C T I O N / E L E M E N T - D E F I N I T I O N
+
+! --- Compliant Part - 1 ---
+!Auswahl von Linie 1 (LSEL, S=new set, Item default=LINE, VMIN od range, VMAX of range - defaults to VMIN)
+	LSEL,S, , , 1 
+
+!Selects those elements associated with the selected lines.			
+	ESLL			
+
+!Groups selected geometry items into a component. (CM, Component name, type of grouped geometry items)
+	cm,ce_compliant,element
+
+!Modifies a previously defined element. (EMODIF, Element, ??? Writes Sectiondata 2)
+	EMODIF,ce_compliant,SEC,1
+	EMODIF,ce_compliant,TYPE,1
+
+! Selects those nodes attached to the selected elements.
+	NSLE
+
+!Groups selected geometry items into a component. NODE
+	cm,cn_compliant,node
+
+
+! --- Rigid Parts - 2/3 ---
+!Auswahl von Linie 2 und 3 (LSEL, S=new set, Item default=LINE, VMIN od range, VMAX of range - defaults to VMIN)
+	LSEL,S, , , 2,3
+
+!Selects those elements associated with the selected lines.			
+	ESLL			
+
+!Groups selected geometry items into a component. (CM, Component name, type of grouped geometry items)
+	cm,ce_rigid,element
+
+!Modifies a previously defined element. (EMODIF, Element, attribute pointer, value)
+	!EMODIF,ce_rigid,SEC,2
+	EMODIF,ce_rigid,TYPE,2
+
+! Selects those nodes attached to the selected elements.
+	NSLE
+
+!Groups selected geometry items into a component. NODE
+	cm,cn_rigid,node
+
+
+
+
+
+
+
+! T R A N S I T I O N / B O U N D A R I E  C O N D I T I O N S
+
+! --- K2 - Rigid Joint ---
+!waehlen aller Knoten an Verbindungsstelle zwischen linkem und mittleren BEAM
+!Selects a subset of nodes. 
+	nsel,all
+
+!Select all nodes of K2  (NSEL, S=new Set / R=from last set, Item=LOC -> Location in active KS, X/Y/Z, value)
+	nsel,s,loc,x,k2x
+	nsel,r,loc,y,k2y
+
+!Stores the two selected nodes in node list as node1 and node2 (*GET, resulting parameter name, Entity keyword, Entinum from table default =all, num=Highest/Lowest node number in selected set, min/max)
+	*get,node1,node,,num,min
+	*get,node2,node,,num,max
+
+
+!CE Defines a constraint equation relating degrees of freedom. (CE, Automatic numbering, const. term of Equation, Node for first term of Equation, DOF for selected lable, lable, second node, 2. DOF, 2. lable)
+!Defining a rigid link
+	ce,next,0,node1,ux  ,1, node2,ux  ,-1
+	ce,next,0,node1,uy  ,1, node2,uy  ,-1
+	ce,next,0,node1,uz  ,1, node2,uz  ,-1
+	ce,next,0,node1,rotx,1, node2,rotx,-1
+	ce,next,0,node1,roty,1, node2,roty,-1
+	ce,next,0,node1,rotz,1,node2,rotz,-1
+
+! --- K3 - Rotational Joint ---
+!Select all nodes
+	nsel,all
+!Filter out nodes at k3
+	nsel,s,loc,x,k3x
+	nsel,r,loc,y,k3y
+!Store as node1 and node1
+	*get,node1,node,,num,min
+	*get,node2,node,,num,max
+
+!Contraint equation definition
+	ce,next,0,node1,ux  ,1, node2,ux  ,-1
+	ce,next,0,node1,uy  ,1, node2,uy  ,-1
+	ce,next,0,node1,uz  ,1, node2,uz  ,-1
+	ce,next,0,node1,rotx,1, node2,rotx,-1
+	ce,next,0,node1,roty,1, node2,roty,-1
+
+!Select all nodes
+	lsel,all 	!Select all lines
+	esll		!Select all nodes on lines
+	nsle		!Select all nodes attached to elements
+
+!Group in one main component
+	cm,cn_all_nodes,node
+
+!Store positions of all nodes in 2D-Array
+	*GET,ncount,node,,num,max			!store total node count in ncount
+	*DIM,all_nodes_ux_start,array,ncount,2		!Define an 2D array parameter for all node coordinates
+	*VGET,all_nodes_ux_start(1,2),node,1,nsel	!Get all selected nodes
+	*VMASK,all_nodes_ux_start(1,2)			!Select all_nodes_ux_start(1,2) as masking vector
+	*VGET,all_nodes_ux_start(1),NODE,,LOC,x,,,2	!
+
+	*DIM,all_nodes_uy_start,array,ncount,2		!The same for uy
+	*VGET,all_nodes_uy_start(1,2),node,1,nsel
+	*VMASK,all_nodes_uy_start(1,2)
+	*VGET,all_nodes_uy_start(1),NODE,,LOC,y,,,2
+
+allsel
+
+cmsel,s,cn_all_nodes,node
+nnum_at_joint2 = NODE(x2,y2,0)
+!ksel,s,kp,,2
+!nslk,s,1
+!*get,nnum_at_joint2,node,,num,min
+*GET,joint2_start_x,NODE,nnum_at_joint2,LOC,X
+*GET,joint2_start_y,NODE,nnum_at_joint2,LOC,Y
+*GET,joint2_start_z,NODE,nnum_at_joint2,LOC,Z
+
+cmsel,s,cn_all_nodes,node
+nnum_at_rotation_load = NODE(x4,y4,0)
+
+cmsel,s,cn_all_nodes,node
+nnum_at_joint3 = NODE(x3,y3,0)
+!*get,nnum_at_joint3,node,,num,min
+*GET,joint3_start_x,NODE,nnum_at_joint3,LOC,X
+*GET,joint3_start_y,NODE,nnum_at_joint3,LOC,Y
+*GET,joint3_start_z,NODE,nnum_at_joint3,LOC,Z
+!nsel,s,node,,nnum_at_joint3
+
+nnum_at_joint1 = NODE(x1,y1,0)
+nnum_at_joint4 = NODE(x4,y4,0)
+
+allsel
+
+FINISH 
+
+!*STATUS 
+
+/solu
+time,100                      ! Define time for first load step
+nlgeom,on                   ! Enable nonlinear geometry effects
+OUTRES,ALL,ALL              ! Save the results data for each substep
+OUTRES,SVAR,ALL
+!RESCONTRL,DEFINE,ALL,ALL,0  ! Save restart files for each substep
+NSUBST,100,100,100       ! Define initial, maximum and minimum substeps 
+!NSUBST,50,50,50       ! Define initial, maximum and minimum substeps 
+
+ksel,s,kp,,1
+nslk,s,1
+d,ALL,ux,0
+d,ALL,uy,0
+d,ALL,uz,0
+d,ALL,rotx,0
+d,ALL,roty,0
+
+ksel,s,kp,,6
+nslk,s,1
+d,ALL,ux,0
+d,ALL,uy,0
+d,ALL,uz,0
+d,ALL,rotx,0
+d,ALL,roty,0
+d,ALL,rotz,rot_z
+
+allsel,all
+solve                       ! Solve the first load step
+
+
+FINISH
+!!!!!!!!!!!! POST-PROCESSOR !!!!!!!!!!!!
+
+
+!FINISH
+!/POST1
+!SET,LAST
+!*GET,last_substep, ACTIVE, 0, SOLU,NCMSS
+!*if,last_substep,ge,999999,then
+!set,prev
+!*endif
+!*get,u_max,node,nnum_at_joint2,u,sum
+
+/POST1
+allsel
+SET,LAST
+*get,u_max,node,nnum_at_joint2,u,sum
+
+
+*GET,number_substeps, ACTIVE, 0, SOLU,NCMSS
+
+    SET,FIRST 
+    !vector time
+    *DIM,array_time,ARRAY,number_substeps,1,1, , ,
+    *DIM,array_substep,ARRAY,number_substeps,1,1, , ,
+    *DIM,array_joint4_rot,ARRAY,number_substeps,1,1, , ,
+    *DIM,array_joint2_x,table,number_substeps,1,1, , ,
+    *DIM,array_joint2_y,table,number_substeps,1,1, , ,
+
+    *DIM,array_joint2_x_mm,table,number_substeps,1,1, , ,
+    *DIM,array_joint2_y_mm,table,number_substeps,1,1, , ,
+
+    *DIM,array_joint3_ux,ARRAY,number_substeps,1,1, , ,
+    *DIM,array_joint3_uy,ARRAY,number_substeps,1,1, , ,
+    !vector associated substep
+    
+    !anzahl an substeps
+    
+    flag1 = number_substeps
+    flag2 = 1
+    !schleife starten
+    *dowhile,flag1
+        *GET,array_time (flag2), ACTIVE, 0, SET,TIME
+        *GET,array_substep (flag2), ACTIVE, 0, SET,SBST
+	*GET,array_joint4_rot (flag2), node, nnum_at_joint4, ROT, Z
+	array_joint2_x(flag2) = k2x + UX(nnum_at_joint2)			!Using UX(N) as inline version of "*GET,array_joint2_ux (flag2),NODE,nnum_at_joint2,U,X"
+	array_joint2_y(flag2) = k2y + UY(nnum_at_joint2)
+        SET,NEXT
+	flag2 = flag2 + 1
+        flag1 = flag1 - 1
+    *enddo      !beenden, wenn time == 1
+
+*VOPER, array_joint2_x_mm, array_joint2_x, MULT, 1000
+*VOPER, array_joint2_y_mm, array_joint2_y, MULT, 1000
+
+*CFOPEN, '%root%\%mechname%\POS_%mechname%', csv
+*VWRITE, 's,t,x,y'
+(A8)
+*VWRITE, array_substep(1),',',array_joint4_rot(1),',',array_joint2_x_mm(1),',',array_joint2_y_mm(1)
+(F10.1, A2, F10.6, A2, F10.3, A2, F10.3)
+*CFCLOS
+
+! P L O T T I N G
+*if, graph_flag, ne, 1, then
+/eshape,1,1
+esel,all
+eplot				!Plot mechanism
+
+
+! A N I M A T I O N
+
+/ZOOM, 1, off			!Fit Screen
+/ZOOM, 1, RECT, -1,-1.5,2,2
+PLDISP			!Show displacement
+ANTIME, 50,0.1,,1,0, 		!Animation
+*endif
+
+! G R A P H I N G
+
+*if, graph_flag, eq, 1, then
+/YRANGE, 0, 250
+/XRANGE, 0, 250
+/title,Point 2 Trajektorie
+/AXLAB, X,X
+/AXLAB,Y,Y
+/UDOC,,DATE,0
+/UDOC,,TYPE,0
+/UDOC,,TYP2,0
+*VPLOT,array_joint2_x_mm(1),array_joint2_y_mm(1)
+/image,save,'%root%\%mechname%\GRAPH_%mechname%', png
+*endif
+
+
